@@ -83,4 +83,4 @@ class FinanceAgent:
 if __name__ == "__main__":
     agent = FinanceAgent()
     response = agent.run("What were Apple's revenue and profit margins in the last quarter?")
-    print(response) 
+    print(response)

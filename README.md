@@ -14,7 +14,7 @@ A GenAI-powered Retrieval-Augmented Generation (RAG) chatbot with LangChain agen
   - `SECParserTool` — for parsing financial PDFs or HTML filings
   - `PlotTool` — auto-generates line/bar charts for financial data
 - 🤖 **LangChain Agent (ReAct)**: Selects and chains tools to fulfill multi-step queries
-- 🖥️ **UI Interface**: Optional Streamlit/Gradio frontend for interactive use
+- ��️ **UI Interface**: Streamlit frontend for interactive use
 
 ---
 
@@ -25,6 +25,7 @@ finance-agent/
 ├── data/
 │   ├── sec_filings/              # SEC 10-Ks and investor PDFs
 │   ├── market_data/              # yfinance CSVs
+│   ├── plots/                    # Generated visualizations
 │   └── fred/                     # Cached macroeconomic series
 │
 ├── tools/
@@ -48,7 +49,7 @@ finance-agent/
 │   └── rag_chain.py              # Retriever + LLM Q&A
 │
 ├── ui/
-│   └── app.py                    # Optional frontend (Streamlit)
+│   └── app.py                    # Streamlit frontend
 │
 ├── .env                          # API keys
 ├── requirements.txt
@@ -59,11 +60,11 @@ finance-agent/
 
 ## 🔄 Example Queries
 
-- “Summarize Tesla’s risk factors from the latest 10-K.”
-- “What’s Apple’s 5-year average free cash flow?”
-- “Compare S&P 500 performance vs interest rate hikes.”
-- “Show CPI vs Nasdaq 100 index for the last 2 years.”
-- “Visualize my portfolio Sharpe ratio trend over 2020–2023.”
+- "Summarize Tesla's risk factors from the latest 10-K."
+- "What's Apple's 5-year average free cash flow?"
+- "Compare S&P 500 performance vs interest rate hikes."
+- "Show CPI vs Nasdaq 100 index for the last 2 years."
+- "Visualize my portfolio Sharpe ratio trend over 2020–2023."
 
 ---
 
@@ -84,15 +85,23 @@ FRED_API_KEY=your_fred_api_key
 git clone https://github.com/yourusername/finance-agent.git
 cd finance-agent
 pip install -r requirements.txt
+
+# Create necessary directories
+mkdir -p data/sec_filings data/plots data/market_data data/fred
 ```
 
-To run local QA:
+### Prepare Data (Optional)
 ```bash
-python agents/finance_agent.py
+# Index sample SEC filings (if available)
+python vectorstore/index_sec.py
+
+# Initialize SQLite database with sample data
+python sql/db_init.py
 ```
 
-To launch the web interface:
+### Run the Application
 ```bash
+# Launch the Streamlit interface
 streamlit run ui/app.py
 ```
 
@@ -104,6 +113,30 @@ streamlit run ui/app.py
 - 📊 [Yahoo Finance](https://finance.yahoo.com/) via `yfinance`
 - 🌎 [FRED API](https://fred.stlouisfed.org/)
 - 📁 [Custom CSVs] for portfolios, fund performance, etc.
+
+---
+
+## 💻 Implementation Details
+
+### Agent Architecture
+The FinAgent uses LangChain's ReAct agent framework to:
+1. Parse user queries for intent
+2. Select appropriate tools based on the query type
+3. Execute tools and process their outputs
+4. Generate comprehensive responses combining multiple data sources
+
+### RAG Implementation
+- Uses OpenAI embeddings to index SEC filings
+- ChromaDB as the vector store
+- Implements semantic search with metadata filtering
+- Combines retrieved context with the LLM for accurate answers
+
+### Deployment
+This project is designed as a Proof of Concept with Streamlit as the frontend. For production deployment, consider:
+- Containerizing with Docker
+- Using a production database like PostgreSQL
+- Implementing authentication and rate limiting
+- Setting up monitoring and logging
 
 ---
 
