@@ -2,11 +2,12 @@ import os
 import glob
 from typing import List, Optional
 import pandas as pd
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredHTMLLoader
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
@@ -14,11 +15,31 @@ class SECIndexer:
     def __init__(self, persist_directory: str = "vectorstore/chroma_db"):
         """Initialize the SEC filings indexer."""
         self.persist_directory = persist_directory
-        self.embeddings = OpenAIEmbeddings()
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'}  # or 'cuda' for GPU
+        )
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
+            # Primary separators that respect document structure
+            separators=[
+                # Common section headers in SEC filings
+                "\n\nITEM ",
+                "\n\nPART ",
+                # Subsection markers
+                "\n\n\d+\.\s+",  # Numbered sections like "1. Business"
+                "\n\n[A-Z][A-Z\s]+\n\n",  # ALL CAPS HEADERS
+                # Paragraph breaks
+                "\n\n",
+                "\n",
+                " ",
+                ""
+            ],
+            # Optimized for all-MiniLM-L6-v2's context window
+            chunk_size=512,
+            chunk_overlap=50,
+            # Don't split in the middle of sentences if possible
+            length_function=len,
+            is_separator_regex=True
         )
         
         # Create directories if they don't exist
@@ -40,12 +61,37 @@ class SECIndexer:
         
         return loader.load()
     
+    def preprocess_sec_filing(self, text):
+        """Add explicit section markers to improve chunking."""
+        # Enhance section headers to make them more detectable
+        text = re.sub(r'(\n\s*)(ITEM\s+\d+[\.:]\s*)(.*?)(\n)', 
+                     r'\1### SECTION: \2\3 ###\4', 
+                     text, flags=re.IGNORECASE)
+        
+        # Mark subsections
+        text = re.sub(r'(\n\s*)(\([a-z]\)\s+)(.*?)(\n)', 
+                     r'\1#### SUBSECTION: \2\3 ####\4', 
+                     text, flags=re.IGNORECASE)
+        
+        return text
+    
+    def extract_section_info(self, text):
+        """Extract section information from chunk text."""
+        section_match = re.search(r'### SECTION: (ITEM\s+\d+[\.:]\s*)(.*?) ###', text)
+        if section_match:
+            return f"{section_match.group(1)}{section_match.group(2)}".strip()
+        return "Unknown Section"
+    
     def index_filing(self, file_path: str) -> str:
         """Index a single SEC filing."""
         try:
             # Load the document
             documents = self.load_documents(file_path)
             print(f"Loaded {len(documents)} document(s) from {file_path}")
+            
+            # Preprocess the document
+            for doc in documents:
+                doc.page_content = self.preprocess_sec_filing(doc.page_content)
             
             # Split the document into chunks
             chunks = self.text_splitter.split_documents(documents)
@@ -70,22 +116,14 @@ class SECIndexer:
                 chunk.metadata["ticker"] = ticker
                 chunk.metadata["filing_type"] = filing_type
                 chunk.metadata["source"] = file_path
+                chunk.metadata["section"] = self.extract_section_info(chunk.page_content)
             
-            # Create or update the vector store
-            if os.path.exists(self.persist_directory) and len(os.listdir(self.persist_directory)) > 0:
-                # Update existing vector store
-                vectorstore = Chroma(
-                    persist_directory=self.persist_directory,
-                    embedding_function=self.embeddings
-                )
-                vectorstore.add_documents(chunks)
-            else:
-                # Create new vector store
-                vectorstore = Chroma.from_documents(
-                    chunks,
-                    self.embeddings,
-                    persist_directory=self.persist_directory
-                )
+            # Create new vector store
+            vectorstore = Chroma.from_documents(
+                chunks,
+                self.embeddings,
+                persist_directory=self.persist_directory
+            )
             
             # Persist the vector store
             vectorstore.persist()
